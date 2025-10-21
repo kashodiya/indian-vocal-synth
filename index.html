@@ -85,7 +85,10 @@
             <li><strong>Drag</strong> points to move them (snaps to grid)</li>
             <li><strong>Drag handles</strong> to adjust curves</li>
             <li><strong>Click on curve</strong> to add a point on it</li>
-            <li><strong>Ctrl+Click</strong> on point to select/deselect</li>
+            <li><strong>Ctrl+Click</strong> on curve point to select/deselect</li>
+            <li><strong>Click on Swar point</strong> to enter swar change mode</li>
+            <li><strong>Arrow keys</strong> in swar mode: Up/Right = higher swar, Down/Left = lower swar</li>
+            <li><strong>Escape/Enter</strong> to exit swar change mode</li>
             <li><strong>Delete key</strong> to delete selected points</li>
             <li><strong>Drag selected</strong> to move multiple points</li>
             <li><strong>Toggle Grid</strong> button to show/hide grid</li>
@@ -125,6 +128,16 @@
         let historyIndex = -1;
         let maxHistorySize = 50;
         
+        // Swar change mode
+        let swarChangeMode = false;
+        let activeSwarPoint = null;
+        
+        // Key state tracking
+        let shiftPressed = false;
+        
+        // Indian swars mapping
+        const swarMap = ['sl', 'Rl', 'rl', 'Gl', 'gl', 'ml', 'Ml', 'pl', 'Dl', 'dl', 'Nl', 'nl', 's', 'R', 'r', 'G', 'g', 'm', 'M', 'p', 'D', 'd', 'N', 'n', 'su', 'Ru', 'ru', 'Gu', 'gu', 'mu', 'Mu', 'pu', 'Du', 'du', 'Nu', 'nu'];
+        
         class BezierPoint {
             constructor(x, y, isSwar = false) {
                 let snapped = snapToGrid(x, y);
@@ -134,6 +147,26 @@
                 this.handleIn = { x: snapped.x - 50, y: snapped.y };
                 this.handleOut = { x: snapped.x + 50, y: snapped.y };
                 this.selected = false;
+                
+                // For Swar points, calculate initial swar index based on Y position
+                if (this.isSwar) {
+                    this.swarIndex = this.calculateSwarIndex(snapped.y);
+                }
+            }
+            
+            calculateSwarIndex(yPos) {
+                // Map Y position to swar index (0-35)
+                // Assuming canvas height maps to full swar range
+                let normalizedY = yPos / height;
+                let index = Math.floor(normalizedY * swarMap.length);
+                return Math.max(0, Math.min(swarMap.length - 1, index));
+            }
+            
+            getSwarText() {
+                if (this.isSwar && this.swarIndex !== undefined) {
+                    return swarMap[this.swarIndex];
+                }
+                return 'स';
             }
             
             draw() {
@@ -166,12 +199,20 @@
                         rect(this.x - smallerSize/2, this.y - smallerSize/2, smallerSize, smallerSize, 6);
                     }
                     
-                    // Draw "स" character in the center of Swar square
+                    // Draw swar character in the center of Swar square
                     fill(255, 255, 255); // White text
                     textAlign(CENTER, CENTER);
-                    textFont('ome-bhatkhande-hindi');
-                    textSize(swarSize * 0.6); // Size relative to square
-                    text('स', this.x, this.y);
+                    textFont('ome-bhatkhande-hindi'); // Use Bhatkhande Hindi font for swar notation
+                    textSize(swarSize * 0.4); // Size relative to square
+                    text(this.getSwarText(), this.x, this.y);
+                    
+                    // Add visual indication if this point is in swar change mode
+                    if (swarChangeMode && activeSwarPoint === this) {
+                        stroke(255, 255, 0); // Yellow border
+                        strokeWeight(3);
+                        noFill();
+                        rect(this.x - swarSize/2 - 5, this.y - swarSize/2 - 5, swarSize + 10, swarSize + 10, 8);
+                    }
                 } else {
                     // Draw circle for curve points
                     if (this.selected) {
@@ -185,7 +226,16 @@
             }
             
             isNearPoint(mx, my, threshold = 10) {
-                return dist(mx, my, this.x, this.y) < threshold;
+                if (this.isSwar) {
+                    // For Swar points, check if click is within the square area
+                    let swarSize = gridSize * 1.6; // Same size as in draw method
+                    let halfSize = swarSize / 2;
+                    return (mx >= this.x - halfSize && mx <= this.x + halfSize &&
+                            my >= this.y - halfSize && my <= this.y + halfSize);
+                } else {
+                    // For curve points, use circular threshold
+                    return dist(mx, my, this.x, this.y) < threshold;
+                }
             }
             
             isNearHandleIn(mx, my, threshold = 8) {
@@ -269,16 +319,32 @@
             // Check for point selection/dragging
             for (let point of points) {
                 if (point.isNearPoint(mx, my)) {
-                    if (keyIsDown(CONTROL)) {
-                        // Toggle selection with Ctrl+Click
+                    if (point.isSwar) {
+                        // For Swar points, set up dragging first, swar change mode will be handled in mouseReleased if no drag occurred
+                        draggingPoint = point;
+                        dragOffset = { x: mx - point.x, y: my - point.y };
+                        // Clear any existing selections
+                        selectedPoints.clear();
+                        for (let p of points) {
+                            p.selected = false;
+                        }
+                        // Exit swar change mode
+                        swarChangeMode = false;
+                        activeSwarPoint = null;
+                        return;
+                    } else if (keyIsDown(CONTROL)) {
+                        // Toggle selection with Ctrl+Click for curve points
                         point.selected = !point.selected;
                         if (point.selected) {
                             selectedPoints.add(point);
                         } else {
                             selectedPoints.delete(point);
                         }
+                        // Exit swar change mode
+                        swarChangeMode = false;
+                        activeSwarPoint = null;
                     } else {
-                        // Start dragging
+                        // Start dragging curve points
                         if (point.selected && selectedPoints.size > 1) {
                             // Drag all selected points
                             draggingSelected = true;
@@ -288,6 +354,9 @@
                             draggingPoint = point;
                             dragOffset = { x: mx - point.x, y: my - point.y };
                         }
+                        // Exit swar change mode
+                        swarChangeMode = false;
+                        activeSwarPoint = null;
                     }
                     return;
                 }
@@ -310,8 +379,18 @@
                 }
             }
             
+            // Exit swar change mode when clicking elsewhere
+            swarChangeMode = false;
+            activeSwarPoint = null;
+            
+            // Check if there are selected points - if so, deselect them instead of creating new point
+            if (selectedPoints.length > 0) {
+                selectedPoints = [];
+                return; // Don't create a new point, just deselect
+            }
+            
             // Add new point at click location
-            if (keyIsDown(SHIFT)) {
+            if (shiftPressed) {
                 // Create a Swar point (square)
                 let newPoint = new BezierPoint(mx, my, true);
                 points.push(newPoint);
@@ -388,6 +467,19 @@
         }
         
         function mouseReleased() {
+            // Check if we were dragging a Swar point and it didn't move much (click vs drag)
+            if (draggingPoint && draggingPoint.isSwar) {
+                let mx = mouseX;
+                let my = mouseY;
+                let dragDistance = dist(mx, my, draggingPoint.x + dragOffset.x, draggingPoint.y + dragOffset.y);
+                
+                // If the drag distance is very small, treat it as a click and enter swar change mode
+                if (dragDistance < 5) {
+                    swarChangeMode = true;
+                    activeSwarPoint = draggingPoint;
+                }
+            }
+            
             // Save state if something was being dragged
             if (draggingPoint || draggingHandle || draggingSelected) {
                 saveState();
@@ -398,16 +490,60 @@
         }
         
         function keyPressed() {
+            // Track Shift key state
+            if (keyCode === SHIFT) {
+                shiftPressed = true;
+            }
+            
+            if (swarChangeMode && activeSwarPoint) {
+                // Handle swar changes with arrow keys
+                if (keyCode === UP_ARROW || keyCode === RIGHT_ARROW) {
+                    // Go to higher swar
+                    if (activeSwarPoint.swarIndex < swarMap.length - 1) {
+                        activeSwarPoint.swarIndex++;
+                        saveState();
+                    }
+                    return false; // Prevent default behavior
+                } else if (keyCode === DOWN_ARROW || keyCode === LEFT_ARROW) {
+                    // Go to lower swar
+                    if (activeSwarPoint.swarIndex > 0) {
+                        activeSwarPoint.swarIndex--;
+                        saveState();
+                    }
+                    return false; // Prevent default behavior
+                } else if (keyCode === ESCAPE || keyCode === ENTER) {
+                    // Exit swar change mode
+                    swarChangeMode = false;
+                    activeSwarPoint = null;
+                    return false;
+                }
+            }
+            
             if (key === 'Delete' || keyCode === DELETE) {
                 deleteSelected();
+                // Exit swar change mode
+                swarChangeMode = false;
+                activeSwarPoint = null;
             } else if ((keyIsDown(CONTROL) || keyIsDown(91)) && key === 'z') { // Ctrl+Z or Cmd+Z
                 if (keyIsDown(SHIFT)) {
                     redo(); // Ctrl+Shift+Z or Cmd+Shift+Z for redo
                 } else {
                     undo(); // Ctrl+Z or Cmd+Z for undo
                 }
+                // Exit swar change mode
+                swarChangeMode = false;
+                activeSwarPoint = null;
             } else if ((keyIsDown(CONTROL) || keyIsDown(91)) && key === 'y') { // Ctrl+Y or Cmd+Y
                 redo();
+                // Exit swar change mode
+                swarChangeMode = false;
+                activeSwarPoint = null;
+            }
+        }
+        
+        function keyReleased() {
+            if (keyCode === SHIFT) {
+                shiftPressed = false;
             }
         }
         
