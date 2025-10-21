@@ -14,6 +14,10 @@
             font-family: Arial, sans-serif;
         }
         
+        .swar-font {
+            font-family: 'ome_bhatkhande_hindi', Arial, sans-serif;
+        }
+        
         #instructions {
             position: absolute;
             top: 10px;
@@ -105,6 +109,7 @@
         <button onclick="toggleHandles()">Toggle Handles</button>
         <button onclick="undo()">Undo</button>
         <button onclick="redo()">Redo</button>
+
     </div>
     
     <script>
@@ -142,15 +147,22 @@
             constructor(x, y, isSwar = false) {
                 let snapped = snapToGrid(x, y);
                 this.x = snapped.x;
-                this.y = snapped.y;
+                
+                // For swar boxes, ensure only one per horizontal line
+                if (isSwar) {
+                    this.y = findAvailableYForSwar(snapped.y);
+                } else {
+                    this.y = snapped.y;
+                }
+                
                 this.isSwar = isSwar; // Square points for Swar notation
-                this.handleIn = { x: snapped.x - 50, y: snapped.y };
-                this.handleOut = { x: snapped.x + 50, y: snapped.y };
+                this.handleIn = { x: this.x - 50, y: this.y };
+                this.handleOut = { x: this.x + 50, y: this.y };
                 this.selected = false;
                 
                 // For Swar points, calculate initial swar index based on Y position
                 if (this.isSwar) {
-                    this.swarIndex = this.calculateSwarIndex(snapped.y);
+                    this.swarIndex = this.calculateSwarIndex(this.y);
                 }
             }
             
@@ -202,7 +214,7 @@
                     // Draw swar character in the center of Swar square
                     fill(255, 255, 255); // White text
                     textAlign(CENTER, CENTER);
-                    textFont('ome-bhatkhande-hindi'); // Use Bhatkhande Hindi font for swar notation
+                    textFont('ome_bhatkhande_hindi'); // Use Bhatkhande Hindi font for swar notation
                     textSize(swarSize * 0.4); // Size relative to square
                     text(this.getSwarText(), this.x, this.y);
                     
@@ -390,7 +402,7 @@
             }
             
             // Add new point at click location
-            if (shiftPressed) {
+            if (shiftPressed || keyIsDown(SHIFT)) {
                 // Create a Swar point (square)
                 let newPoint = new BezierPoint(mx, my, true);
                 points.push(newPoint);
@@ -436,12 +448,23 @@
                 
                 // Snap to grid
                 let snapped = snapToGrid(newX, newY);
+                
+                // For swar boxes, ensure only one per horizontal line
+                if (draggingPoint.isSwar) {
+                    snapped.y = findAvailableYForSwar(snapped.y, draggingPoint);
+                }
+                
                 let dx = snapped.x - draggingPoint.x;
                 let dy = snapped.y - draggingPoint.y;
                 
                 // Move the point
                 draggingPoint.x = snapped.x;
                 draggingPoint.y = snapped.y;
+                
+                // Update swar index for swar points
+                if (draggingPoint.isSwar) {
+                    draggingPoint.swarIndex = draggingPoint.calculateSwarIndex(draggingPoint.y);
+                }
                 
                 // Move handles with the point (maintain relative positions)
                 draggingPoint.handleIn.x += dx;
@@ -457,11 +480,32 @@
                 let snappedDy = Math.round(dy / gridSize) * gridSize;
                 
                 if (snappedDx !== 0 || snappedDy !== 0) {
-                    for (let point of selectedPoints) {
-                        point.moveBy(snappedDx, snappedDy);
+                    // Check for swar box conflicts before moving
+                    let canMove = true;
+                    let swarPoints = Array.from(selectedPoints).filter(p => p.isSwar);
+                    
+                    // For swar boxes, check if the new positions would conflict
+                    if (swarPoints.length > 0) {
+                        for (let swarPoint of swarPoints) {
+                            let newY = swarPoint.y + snappedDy;
+                            if (hasSwarAtY(newY, swarPoint)) {
+                                canMove = false;
+                                break;
+                            }
+                        }
                     }
-                    lastMousePos.x += snappedDx;
-                    lastMousePos.y += snappedDy;
+                    
+                    if (canMove) {
+                        for (let point of selectedPoints) {
+                            point.moveBy(snappedDx, snappedDy);
+                            // Update swar index for swar points
+                            if (point.isSwar) {
+                                point.swarIndex = point.calculateSwarIndex(point.y);
+                            }
+                        }
+                        lastMousePos.x += snappedDx;
+                        lastMousePos.y += snappedDy;
+                    }
                 }
             }
         }
@@ -737,6 +781,46 @@
             };
         }
         
+        // Check if there's already a swar box at the given Y position
+        function hasSwarAtY(yPos, excludePoint = null) {
+            return points.some(point => 
+                point.isSwar && 
+                point !== excludePoint && 
+                Math.abs(point.y - yPos) < gridSize / 2
+            );
+        }
+        
+        // Find the nearest available Y position for a swar box
+        function findAvailableYForSwar(targetY, excludePoint = null) {
+            let snappedY = Math.round(targetY / gridSize) * gridSize;
+            
+            // If the target position is available, use it
+            if (!hasSwarAtY(snappedY, excludePoint)) {
+                return snappedY;
+            }
+            
+            // Search for the nearest available position
+            let searchRadius = 1;
+            while (searchRadius * gridSize < height) {
+                // Try above
+                let yAbove = snappedY - (searchRadius * gridSize);
+                if (yAbove >= 0 && !hasSwarAtY(yAbove, excludePoint)) {
+                    return yAbove;
+                }
+                
+                // Try below
+                let yBelow = snappedY + (searchRadius * gridSize);
+                if (yBelow <= height && !hasSwarAtY(yBelow, excludePoint)) {
+                    return yBelow;
+                }
+                
+                searchRadius++;
+            }
+            
+            // If no position found, return the original (shouldn't happen in normal cases)
+            return snappedY;
+        }
+
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
         }
