@@ -79,18 +79,26 @@
         <h3>Bezier Curve Editor</h3>
         <ul>
             <li><strong>Click</strong> on empty space to add a point</li>
-            <li><strong>Drag</strong> points to move them</li>
+            <li><strong>Drag</strong> points to move them (snaps to grid)</li>
             <li><strong>Drag handles</strong> to adjust curves</li>
             <li><strong>Click on curve</strong> to add a point on it</li>
             <li><strong>Shift+Click</strong> on point to select/deselect</li>
             <li><strong>Delete key</strong> to delete selected points</li>
             <li><strong>Drag selected</strong> to move multiple points</li>
+            <li><strong>Toggle Grid</strong> button to show/hide grid</li>
+            <li><strong>Toggle Handles</strong> button to show/hide control handles</li>
+            <li><strong>Ctrl+Z</strong> (or Cmd+Z) to undo</li>
+            <li><strong>Ctrl+Y</strong> or <strong>Ctrl+Shift+Z</strong> to redo</li>
         </ul>
     </div>
     
     <div id="controls">
         <button onclick="clearAll()">Clear All</button>
         <button class="delete" onclick="deleteSelected()">Delete Selected</button>
+        <button onclick="toggleGrid()">Toggle Grid</button>
+        <button onclick="toggleHandles()">Toggle Handles</button>
+        <button onclick="undo()">Undo</button>
+        <button onclick="redo()">Redo</button>
     </div>
     
     <script>
@@ -102,27 +110,43 @@
         let dragOffset = { x: 0, y: 0 };
         let lastMousePos = { x: 0, y: 0 };
         
+        // Grid settings
+        let gridSize = 20;
+        let showGrid = true;
+        
+        // Handle visibility
+        let showHandles = true;
+        
+        // Undo/Redo system
+        let history = [];
+        let historyIndex = -1;
+        let maxHistorySize = 50;
+        
         class BezierPoint {
             constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.handleIn = { x: x - 50, y: y };
-                this.handleOut = { x: x + 50, y: y };
+                let snapped = snapToGrid(x, y);
+                this.x = snapped.x;
+                this.y = snapped.y;
+                this.handleIn = { x: snapped.x - 50, y: snapped.y };
+                this.handleOut = { x: snapped.x + 50, y: snapped.y };
                 this.selected = false;
             }
             
             draw() {
-                // Draw handles
-                stroke(150);
-                strokeWeight(1);
-                line(this.handleIn.x, this.handleIn.y, this.x, this.y);
-                line(this.x, this.y, this.handleOut.x, this.handleOut.y);
-                
-                // Draw handle points
-                fill(100, 150, 255);
-                noStroke();
-                ellipse(this.handleIn.x, this.handleIn.y, 8, 8);
-                ellipse(this.handleOut.x, this.handleOut.y, 8, 8);
+                // Draw handles only if showHandles is true
+                if (showHandles) {
+                    // Draw handles
+                    stroke(150);
+                    strokeWeight(1);
+                    line(this.handleIn.x, this.handleIn.y, this.x, this.y);
+                    line(this.x, this.y, this.handleOut.x, this.handleOut.y);
+                    
+                    // Draw handle points
+                    fill(100, 150, 255);
+                    noStroke();
+                    ellipse(this.handleIn.x, this.handleIn.y, 8, 8);
+                    ellipse(this.handleOut.x, this.handleOut.y, 8, 8);
+                }
                 
                 // Draw main point
                 if (this.selected) {
@@ -158,10 +182,17 @@
         
         function setup() {
             createCanvas(windowWidth, windowHeight);
+            // Save initial empty state
+            saveState();
         }
         
         function draw() {
             background(240);
+            
+            // Draw grid
+            if (showGrid) {
+                drawGrid();
+            }
             
             // Draw Bezier curves between consecutive points
             if (points.length >= 2) {
@@ -194,15 +225,17 @@
             // Check if clicking on UI elements
             if (isOverUI(mx, my)) return;
             
-            // Check for handle dragging first
-            for (let point of points) {
-                if (point.isNearHandleIn(mx, my)) {
-                    draggingHandle = { point: point, handle: 'in' };
-                    return;
-                }
-                if (point.isNearHandleOut(mx, my)) {
-                    draggingHandle = { point: point, handle: 'out' };
-                    return;
+            // Check for handle dragging first (only if handles are visible)
+            if (showHandles) {
+                for (let point of points) {
+                    if (point.isNearHandleIn(mx, my)) {
+                        draggingHandle = { point: point, handle: 'in' };
+                        return;
+                    }
+                    if (point.isNearHandleOut(mx, my)) {
+                        draggingHandle = { point: point, handle: 'out' };
+                        return;
+                    }
                 }
             }
             
@@ -241,6 +274,7 @@
                         let t = findClosestT(mx, my, points[i], points[i + 1]);
                         let newPoint = createPointOnCurve(points[i], points[i + 1], t);
                         points.splice(i + 1, 0, newPoint);
+                        saveState();
                         return;
                     }
                 }
@@ -249,6 +283,7 @@
             // Add new point at click location
             let newPoint = new BezierPoint(mx, my);
             points.push(newPoint);
+            saveState();
         }
         
         function mouseDragged() {
@@ -282,12 +317,15 @@
                 // Calculate the movement delta
                 let newX = mx - dragOffset.x;
                 let newY = my - dragOffset.y;
-                let dx = newX - draggingPoint.x;
-                let dy = newY - draggingPoint.y;
+                
+                // Snap to grid
+                let snapped = snapToGrid(newX, newY);
+                let dx = snapped.x - draggingPoint.x;
+                let dy = snapped.y - draggingPoint.y;
                 
                 // Move the point
-                draggingPoint.x = newX;
-                draggingPoint.y = newY;
+                draggingPoint.x = snapped.x;
+                draggingPoint.y = snapped.y;
                 
                 // Move handles with the point (maintain relative positions)
                 draggingPoint.handleIn.x += dx;
@@ -298,15 +336,25 @@
                 let dx = mx - lastMousePos.x;
                 let dy = my - lastMousePos.y;
                 
-                for (let point of selectedPoints) {
-                    point.moveBy(dx, dy);
-                }
+                // For multiple selection, we'll snap the movement delta to grid increments
+                let snappedDx = Math.round(dx / gridSize) * gridSize;
+                let snappedDy = Math.round(dy / gridSize) * gridSize;
                 
-                lastMousePos = { x: mx, y: my };
+                if (snappedDx !== 0 || snappedDy !== 0) {
+                    for (let point of selectedPoints) {
+                        point.moveBy(snappedDx, snappedDy);
+                    }
+                    lastMousePos.x += snappedDx;
+                    lastMousePos.y += snappedDy;
+                }
             }
         }
         
         function mouseReleased() {
+            // Save state if something was being dragged
+            if (draggingPoint || draggingHandle || draggingSelected) {
+                saveState();
+            }
             draggingPoint = null;
             draggingHandle = null;
             draggingSelected = false;
@@ -315,6 +363,14 @@
         function keyPressed() {
             if (key === 'Delete' || keyCode === DELETE) {
                 deleteSelected();
+            } else if ((keyIsDown(CONTROL) || keyIsDown(91)) && key === 'z') { // Ctrl+Z or Cmd+Z
+                if (keyIsDown(SHIFT)) {
+                    redo(); // Ctrl+Shift+Z or Cmd+Shift+Z for redo
+                } else {
+                    undo(); // Ctrl+Z or Cmd+Z for undo
+                }
+            } else if ((keyIsDown(CONTROL) || keyIsDown(91)) && key === 'y') { // Ctrl+Y or Cmd+Y
+                redo();
             }
         }
         
@@ -351,19 +407,22 @@
             let x = bezierPoint(p1.x, p1.handleOut.x, p2.handleIn.x, p2.x, t);
             let y = bezierPoint(p1.y, p1.handleOut.y, p2.handleIn.y, p2.y, t);
             
+            // Snap to grid
+            let snapped = snapToGrid(x, y);
+            
             // Calculate tangent for handle positions
             let tx = bezierTangent(p1.x, p1.handleOut.x, p2.handleIn.x, p2.x, t);
             let ty = bezierTangent(p1.y, p1.handleOut.y, p2.handleIn.y, p2.y, t);
             
-            let newPoint = new BezierPoint(x, y);
+            let newPoint = new BezierPoint(snapped.x, snapped.y);
             
             // Set handles along the tangent
             let handleLength = 50;
             let angle = atan2(ty, tx);
-            newPoint.handleIn.x = x - cos(angle) * handleLength;
-            newPoint.handleIn.y = y - sin(angle) * handleLength;
-            newPoint.handleOut.x = x + cos(angle) * handleLength;
-            newPoint.handleOut.y = y + sin(angle) * handleLength;
+            newPoint.handleIn.x = snapped.x - cos(angle) * handleLength;
+            newPoint.handleIn.y = snapped.y - sin(angle) * handleLength;
+            newPoint.handleOut.x = snapped.x + cos(angle) * handleLength;
+            newPoint.handleOut.y = snapped.y + sin(angle) * handleLength;
             
             return newPoint;
         }
@@ -385,16 +444,111 @@
         function clearAll() {
             points = [];
             selectedPoints.clear();
+            saveState();
         }
         
         function deleteSelected() {
             if (selectedPoints.size > 0) {
                 points = points.filter(p => !selectedPoints.has(p));
                 selectedPoints.clear();
+                saveState();
             } else {
                 // If no points selected, delete all selected points
                 points = points.filter(p => !p.selected);
+                saveState();
             }
+        }
+        
+        function toggleGrid() {
+            showGrid = !showGrid;
+        }
+        
+        function toggleHandles() {
+            showHandles = !showHandles;
+        }
+        
+        function saveState() {
+            // Deep clone the points array to save current state
+            let state = {
+                points: points.map(p => ({
+                    x: p.x,
+                    y: p.y,
+                    handleIn: { x: p.handleIn.x, y: p.handleIn.y },
+                    handleOut: { x: p.handleOut.x, y: p.handleOut.y },
+                    selected: p.selected
+                })),
+                selectedPoints: new Set([...selectedPoints])
+            };
+            
+            // Remove any future history if we're not at the end
+            if (historyIndex < history.length - 1) {
+                history = history.slice(0, historyIndex + 1);
+            }
+            
+            // Add new state
+            history.push(state);
+            
+            // Limit history size
+            if (history.length > maxHistorySize) {
+                history.shift();
+            } else {
+                historyIndex++;
+            }
+        }
+        
+        function restoreState(state) {
+            // Clear current selection
+            selectedPoints.clear();
+            
+            // Restore points
+            points = state.points.map(p => {
+                let point = new BezierPoint(p.x, p.y);
+                point.x = p.x;
+                point.y = p.y;
+                point.handleIn = { x: p.handleIn.x, y: p.handleIn.y };
+                point.handleOut = { x: p.handleOut.x, y: p.handleOut.y };
+                point.selected = p.selected;
+                if (point.selected) {
+                    selectedPoints.add(point);
+                }
+                return point;
+            });
+        }
+        
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                restoreState(history[historyIndex]);
+            }
+        }
+        
+        function redo() {
+            if (historyIndex < history.length - 1) {
+                historyIndex++;
+                restoreState(history[historyIndex]);
+            }
+        }
+        
+        function drawGrid() {
+            stroke(200, 200, 200); // Light grey color
+            strokeWeight(1);
+            
+            // Draw vertical lines
+            for (let x = 0; x <= width; x += gridSize) {
+                line(x, 0, x, height);
+            }
+            
+            // Draw horizontal lines
+            for (let y = 0; y <= height; y += gridSize) {
+                line(0, y, width, y);
+            }
+        }
+        
+        function snapToGrid(x, y) {
+            return {
+                x: Math.round(x / gridSize) * gridSize,
+                y: Math.round(y / gridSize) * gridSize
+            };
         }
         
         function windowResized() {
