@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bezier Curve Editor</title>
+    <title>Indian Vocal Synth - Swar Editor</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
     <style>
         body {
@@ -76,13 +76,15 @@
 </head>
 <body>
     <div id="instructions">
-        <h3>Bezier Curve Editor</h3>
+        <h3>Indian Vocal Synth - Swar Editor</h3>
+        <p><strong>X-axis:</strong> Time | <strong>Y-axis:</strong> Tone (Swar)</p>
         <ul>
-            <li><strong>Click</strong> on empty space to add a point</li>
+            <li><strong>Click</strong> on empty space to add a curve point</li>
+            <li><strong>Shift+Click</strong> to add a square Swar point</li>
             <li><strong>Drag</strong> points to move them (snaps to grid)</li>
             <li><strong>Drag handles</strong> to adjust curves</li>
             <li><strong>Click on curve</strong> to add a point on it</li>
-            <li><strong>Shift+Click</strong> on point to select/deselect</li>
+            <li><strong>Ctrl+Click</strong> on point to select/deselect</li>
             <li><strong>Delete key</strong> to delete selected points</li>
             <li><strong>Drag selected</strong> to move multiple points</li>
             <li><strong>Toggle Grid</strong> button to show/hide grid</li>
@@ -111,7 +113,7 @@
         let lastMousePos = { x: 0, y: 0 };
         
         // Grid settings
-        let gridSize = 20;
+        let gridSize = 40;
         let showGrid = true;
         
         // Handle visibility
@@ -123,18 +125,19 @@
         let maxHistorySize = 50;
         
         class BezierPoint {
-            constructor(x, y) {
+            constructor(x, y, isSwar = false) {
                 let snapped = snapToGrid(x, y);
                 this.x = snapped.x;
                 this.y = snapped.y;
+                this.isSwar = isSwar; // Square points for Swar notation
                 this.handleIn = { x: snapped.x - 50, y: snapped.y };
                 this.handleOut = { x: snapped.x + 50, y: snapped.y };
                 this.selected = false;
             }
             
             draw() {
-                // Draw handles only if showHandles is true
-                if (showHandles) {
+                // Draw handles only if showHandles is true and not a Swar point
+                if (showHandles && !this.isSwar) {
                     // Draw handles
                     stroke(150);
                     strokeWeight(1);
@@ -149,12 +152,27 @@
                 }
                 
                 // Draw main point
-                if (this.selected) {
-                    fill(255, 100, 100);
-                    ellipse(this.x, this.y, 16, 16);
+                noStroke();
+                if (this.isSwar) {
+                    // Draw rounded square for Swar points (size matches grid)
+                    let swarSize = gridSize * 0.8; // 80% of grid size
+                    if (this.selected) {
+                        fill(255, 150, 50); // Orange for selected Swar
+                        rect(this.x - swarSize/2, this.y - swarSize/2, swarSize, swarSize, 8);
+                    } else {
+                        fill(200, 100, 50); // Brown for Swar points
+                        let smallerSize = swarSize * 0.75;
+                        rect(this.x - smallerSize/2, this.y - smallerSize/2, smallerSize, smallerSize, 6);
+                    }
                 } else {
-                    fill(50, 50, 50);
-                    ellipse(this.x, this.y, 12, 12);
+                    // Draw circle for curve points
+                    if (this.selected) {
+                        fill(255, 100, 100); // Red for selected curve points
+                        ellipse(this.x, this.y, 16, 16);
+                    } else {
+                        fill(50, 50, 50); // Dark for curve points
+                        ellipse(this.x, this.y, 12, 12);
+                    }
                 }
             }
             
@@ -194,15 +212,16 @@
                 drawGrid();
             }
             
-            // Draw Bezier curves between consecutive points
-            if (points.length >= 2) {
+            // Draw Bezier curves between consecutive curve points (skip Swar points)
+            let curvePoints = points.filter(p => !p.isSwar);
+            if (curvePoints.length >= 2) {
                 noFill();
                 stroke(50, 50, 50);
                 strokeWeight(2);
                 
-                for (let i = 0; i < points.length - 1; i++) {
-                    let p1 = points[i];
-                    let p2 = points[i + 1];
+                for (let i = 0; i < curvePoints.length - 1; i++) {
+                    let p1 = curvePoints[i];
+                    let p2 = curvePoints[i + 1];
                     bezier(
                         p1.x, p1.y,
                         p1.handleOut.x, p1.handleOut.y,
@@ -242,8 +261,8 @@
             // Check for point selection/dragging
             for (let point of points) {
                 if (point.isNearPoint(mx, my)) {
-                    if (keyIsDown(SHIFT)) {
-                        // Toggle selection with Shift+Click
+                    if (keyIsDown(CONTROL)) {
+                        // Toggle selection with Ctrl+Click
                         point.selected = !point.selected;
                         if (point.selected) {
                             selectedPoints.add(point);
@@ -266,14 +285,17 @@
                 }
             }
             
-            // Check if clicking on a curve to add a point
-            if (points.length >= 2) {
-                for (let i = 0; i < points.length - 1; i++) {
-                    if (isNearCurve(mx, my, points[i], points[i + 1])) {
-                        // Add a new point on the curve
-                        let t = findClosestT(mx, my, points[i], points[i + 1]);
-                        let newPoint = createPointOnCurve(points[i], points[i + 1], t);
-                        points.splice(i + 1, 0, newPoint);
+            // Check if clicking on a curve to add a point (only for curve points)
+            let curvePoints = points.filter(p => !p.isSwar);
+            if (curvePoints.length >= 2) {
+                for (let i = 0; i < curvePoints.length - 1; i++) {
+                    if (isNearCurve(mx, my, curvePoints[i], curvePoints[i + 1])) {
+                        // Add a new curve point on the curve
+                        let t = findClosestT(mx, my, curvePoints[i], curvePoints[i + 1]);
+                        let newPoint = createPointOnCurve(curvePoints[i], curvePoints[i + 1], t);
+                        // Find the correct position in the original points array
+                        let insertIndex = points.indexOf(curvePoints[i + 1]);
+                        points.splice(insertIndex, 0, newPoint);
                         saveState();
                         return;
                     }
@@ -281,8 +303,15 @@
             }
             
             // Add new point at click location
-            let newPoint = new BezierPoint(mx, my);
-            points.push(newPoint);
+            if (keyIsDown(SHIFT)) {
+                // Create a Swar point (square)
+                let newPoint = new BezierPoint(mx, my, true);
+                points.push(newPoint);
+            } else {
+                // Create a regular curve point (circle)
+                let newPoint = new BezierPoint(mx, my, false);
+                points.push(newPoint);
+            }
             saveState();
         }
         
@@ -473,6 +502,7 @@
                 points: points.map(p => ({
                     x: p.x,
                     y: p.y,
+                    isSwar: p.isSwar,
                     handleIn: { x: p.handleIn.x, y: p.handleIn.y },
                     handleOut: { x: p.handleOut.x, y: p.handleOut.y },
                     selected: p.selected
@@ -502,9 +532,10 @@
             
             // Restore points
             points = state.points.map(p => {
-                let point = new BezierPoint(p.x, p.y);
+                let point = new BezierPoint(p.x, p.y, p.isSwar || false);
                 point.x = p.x;
                 point.y = p.y;
+                point.isSwar = p.isSwar || false;
                 point.handleIn = { x: p.handleIn.x, y: p.handleIn.y };
                 point.handleOut = { x: p.handleOut.x, y: p.handleOut.y };
                 point.selected = p.selected;
@@ -530,16 +561,27 @@
         }
         
         function drawGrid() {
-            stroke(200, 200, 200); // Light grey color
-            strokeWeight(1);
+            // Get all Swar point positions
+            let swarPositions = points.filter(p => p.isSwar).map(p => ({ x: p.x, y: p.y }));
             
-            // Draw vertical lines
+            // Draw vertical lines (always light grey)
+            stroke(200, 200, 200); // Light grey for all vertical lines
+            strokeWeight(1);
             for (let x = 0; x <= width; x += gridSize) {
                 line(x, 0, x, height);
             }
             
-            // Draw horizontal lines
+            // Draw horizontal lines (darker where Swar points exist)
             for (let y = 0; y <= height; y += gridSize) {
+                // Check if any Swar point is on this horizontal line
+                let hasSwar = swarPositions.some(pos => pos.y === y);
+                if (hasSwar) {
+                    stroke(120, 120, 120); // Darker grey for Swar lines
+                    strokeWeight(2);
+                } else {
+                    stroke(200, 200, 200); // Light grey for normal lines
+                    strokeWeight(1);
+                }
                 line(0, y, width, y);
             }
         }
