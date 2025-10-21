@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Indian Vocal Synth - Swar Editor</title>
+    <link rel="stylesheet" href="https://webfonts.omenad.net/fonts.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
     <style>
         body {
@@ -154,8 +155,8 @@
                 // Draw main point
                 noStroke();
                 if (this.isSwar) {
-                    // Draw rounded square for Swar points (size matches grid)
-                    let swarSize = gridSize * 0.8; // 80% of grid size
+                    // Draw rounded square for Swar points (double size)
+                    let swarSize = gridSize * 1.6; // 160% of grid size (double the previous 80%)
                     if (this.selected) {
                         fill(255, 150, 50); // Orange for selected Swar
                         rect(this.x - swarSize/2, this.y - swarSize/2, swarSize, swarSize, 8);
@@ -164,6 +165,13 @@
                         let smallerSize = swarSize * 0.75;
                         rect(this.x - smallerSize/2, this.y - smallerSize/2, smallerSize, smallerSize, 6);
                     }
+                    
+                    // Draw "स" character in the center of Swar square
+                    fill(255, 255, 255); // White text
+                    textAlign(CENTER, CENTER);
+                    textFont('ome-bhatkhande-hindi');
+                    textSize(swarSize * 0.6); // Size relative to square
+                    text('स', this.x, this.y);
                 } else {
                     // Draw circle for curve points
                     if (this.selected) {
