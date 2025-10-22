@@ -469,8 +469,11 @@
             activeSwarPoint = null;
             
             // Check if there are selected points - if so, deselect them instead of creating new point
-            if (selectedPoints.length > 0) {
-                selectedPoints = [];
+            if (selectedPoints.size > 0) {
+                selectedPoints.clear();
+                for (let p of points) {
+                    p.selected = false;
+                }
                 return; // Don't create a new point, just deselect
             }
             
@@ -667,8 +670,12 @@
                     }
                     return false; // Prevent default behavior
                 } else if (keyCode === ESCAPE || keyCode === ENTER) {
-                    // Exit swar change mode
+                    // Exit swar change mode and deselect the point
                     swarChangeMode = false;
+                    if (activeSwarPoint) {
+                        activeSwarPoint.selected = false;
+                        selectedPoints.delete(activeSwarPoint);
+                    }
                     activeSwarPoint = null;
                     return false;
                 }
