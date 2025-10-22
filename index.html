@@ -360,6 +360,16 @@
                         swarChangeMode = false;
                         activeSwarPoint = null;
                     } else {
+                        // Clear any existing selections first
+                        selectedPoints.clear();
+                        for (let p of points) {
+                            p.selected = false;
+                        }
+                        
+                        // Select this point
+                        point.selected = true;
+                        selectedPoints.add(point);
+                        
                         // Start dragging curve points
                         if (point.selected && selectedPoints.size > 1) {
                             // Drag all selected points
@@ -595,11 +605,38 @@
                 }
             }
             
-            if (key === 'Delete' || keyCode === DELETE) {
-                deleteSelected();
-                // Exit swar change mode
-                swarChangeMode = false;
-                activeSwarPoint = null;
+            if (key === 'Delete' || keyCode === DELETE || key === 'd' || key === 'D') {
+                // If a swar point is selected or in swar change mode, delete it and all points on its line
+                if ((swarChangeMode && activeSwarPoint) || 
+                    (selectedPoints.size === 1 && [...selectedPoints][0].isSwar)) {
+                    
+                    let swarPoint = swarChangeMode ? activeSwarPoint : [...selectedPoints][0];
+                    let swarY = swarPoint.y;
+                    
+                    // Find all curve points on the same horizontal line
+                    let pointsToDelete = points.filter(p => 
+                        (p === swarPoint) || // The swar point itself
+                        (!p.isSwar && Math.abs(p.y - swarY) < gridSize / 2) // Points on the same line
+                    );
+                    
+                    // Remove these points
+                    for (let p of pointsToDelete) {
+                        selectedPoints.delete(p);
+                        points = points.filter(point => point !== p);
+                    }
+                    
+                    // Exit swar change mode
+                    swarChangeMode = false;
+                    activeSwarPoint = null;
+                    
+                    saveState();
+                } else {
+                    // Regular delete for other points
+                    deleteSelected();
+                    // Exit swar change mode
+                    swarChangeMode = false;
+                    activeSwarPoint = null;
+                }
             } else if ((keyIsDown(CONTROL) || keyIsDown(91)) && key === 'z') { // Ctrl+Z or Cmd+Z
                 if (keyIsDown(SHIFT)) {
                     redo(); // Ctrl+Shift+Z or Cmd+Shift+Z for redo
