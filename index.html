@@ -342,7 +342,10 @@
             // Draw all points and their handles
             for (let point of points) {
                 // Check if this point is currently playing
-                let isPlayingPoint = isPlaying && currentPlayingPoint === point;
+                let isPlayingPoint = isPlaying && (
+                    currentPlayingPoint === point || 
+                    (point.isSwar && currentPlayingSwarPoints.includes(point))
+                );
                 point.draw(isPlayingPoint);
             }
         }
@@ -954,6 +957,7 @@
         // Variables for playback visualization
         let currentPlayingPoint = null;
         let currentPlayingSegment = null;
+        let currentPlayingSwarPoints = []; // Array to store the current and next Swar points being played
         
         async function playSequence() {
             try {
@@ -1040,6 +1044,17 @@
                     // Highlight the current playing point
                     currentPlayingPoint = point;
                     
+                    // If it's a Swar point, highlight it directly
+                    if (point.isSwar) {
+                        currentPlayingSwarPoints = [point];
+                    } else {
+                        // For curve points, find and highlight the nearest Swar
+                        let nearestSwar = findNearestSwarPoint(point);
+                        if (nearestSwar) {
+                            currentPlayingSwarPoints = [nearestSwar];
+                        }
+                    }
+                    
                     // Play a single tone for 1 grid unit
                     synth.frequency.setValueAtTime(freq, Tone.now());
                     
@@ -1050,6 +1065,7 @@
                         }
                         isPlaying = false;
                         currentPlayingPoint = null;
+                        currentPlayingSwarPoints = [];
                         
                         // Remove progress indicator
                         const progressElement = document.getElementById('progress-indicator');
@@ -1083,6 +1099,11 @@
                     setTimeout(() => {
                         currentPlayingPoint = currentPoint;
                         currentPlayingSegment = isConnected ? { start: currentPoint, end: nextPoint } : null;
+                        
+                        // Find the relevant Swar points for this segment
+                        let currentSwar = findNearestSwarPoint(currentPoint);
+                        let nextSwar = findNearestSwarPoint(nextPoint);
+                        currentPlayingSwarPoints = [currentSwar, nextSwar].filter(p => p !== null);
                         
                         // Update progress indicator
                         const progressElement = document.getElementById('progress-indicator');
@@ -1125,6 +1146,7 @@
                     isPlaying = false;
                     currentPlayingPoint = null;
                     currentPlayingSegment = null;
+                    currentPlayingSwarPoints = [];
                     
                     // Remove progress indicator
                     const progressElement = document.getElementById('progress-indicator');
@@ -1136,6 +1158,7 @@
                 isPlaying = false;
                 currentPlayingPoint = null;
                 currentPlayingSegment = null;
+                currentPlayingSwarPoints = [];
                 if (synth) {
                     synth.stop();
                 }
