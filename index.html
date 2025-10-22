@@ -147,31 +147,17 @@
             constructor(x, y, isSwar = false) {
                 let snapped = snapToGrid(x, y);
                 this.x = snapped.x;
-                
-                // For swar boxes, ensure only one per horizontal line
-                if (isSwar) {
-                    this.y = findAvailableYForSwar(snapped.y);
-                } else {
-                    this.y = snapped.y;
-                }
+                this.y = snapped.y;
                 
                 this.isSwar = isSwar; // Square points for Swar notation
                 this.handleIn = { x: this.x - 50, y: this.y };
                 this.handleOut = { x: this.x + 50, y: this.y };
                 this.selected = false;
                 
-                // For Swar points, calculate initial swar index based on Y position
+                // For Swar points, start with default swar (middle 'स')
                 if (this.isSwar) {
-                    this.swarIndex = this.calculateSwarIndex(this.y);
+                    this.swarIndex = 12; // Default to middle 's' (स)
                 }
-            }
-            
-            calculateSwarIndex(yPos) {
-                // Map Y position to swar index (0-35)
-                // Assuming canvas height maps to full swar range
-                let normalizedY = yPos / height;
-                let index = Math.floor(normalizedY * swarMap.length);
-                return Math.max(0, Math.min(swarMap.length - 1, index));
             }
             
             getSwarText() {
@@ -406,12 +392,17 @@
                 // Create a Swar point (square)
                 let newPoint = new BezierPoint(mx, my, true);
                 points.push(newPoint);
+                saveState();
             } else {
-                // Create a regular curve point (circle)
-                let newPoint = new BezierPoint(mx, my, false);
-                points.push(newPoint);
+                // Create a regular curve point (circle) - only on swar lines
+                let nearestSwarY = findNearestSwarLineY(my);
+                if (nearestSwarY !== null) {
+                    let newPoint = new BezierPoint(mx, nearestSwarY, false);
+                    points.push(newPoint);
+                    saveState();
+                }
+                // If no swar line exists, don't create the curve point
             }
-            saveState();
         }
         
         function mouseDragged() {
@@ -449,22 +440,40 @@
                 // Snap to grid
                 let snapped = snapToGrid(newX, newY);
                 
-                // For swar boxes, ensure only one per horizontal line
-                if (draggingPoint.isSwar) {
-                    snapped.y = findAvailableYForSwar(snapped.y, draggingPoint);
+                // For curve points, constrain to swar lines
+                if (!draggingPoint.isSwar) {
+                    let nearestSwarY = findNearestSwarLineY(snapped.y);
+                    if (nearestSwarY !== null) {
+                        snapped.y = nearestSwarY;
+                    } else {
+                        // If no swar line exists, don't move the point
+                        return;
+                    }
                 }
                 
                 let dx = snapped.x - draggingPoint.x;
                 let dy = snapped.y - draggingPoint.y;
                 
+                // If moving a swar box, also move all curve points on the same horizontal line
+                if (draggingPoint.isSwar && dy !== 0) {
+                    let oldY = draggingPoint.y;
+                    // Find all curve points on the same horizontal line
+                    let curvePointsOnLine = points.filter(p => 
+                        !p.isSwar && 
+                        Math.abs(p.y - oldY) < gridSize / 2
+                    );
+                    
+                    // Move all curve points on this line
+                    for (let curvePoint of curvePointsOnLine) {
+                        curvePoint.y += dy;
+                        curvePoint.handleIn.y += dy;
+                        curvePoint.handleOut.y += dy;
+                    }
+                }
+                
                 // Move the point
                 draggingPoint.x = snapped.x;
                 draggingPoint.y = snapped.y;
-                
-                // Update swar index for swar points
-                if (draggingPoint.isSwar) {
-                    draggingPoint.swarIndex = draggingPoint.calculateSwarIndex(draggingPoint.y);
-                }
                 
                 // Move handles with the point (maintain relative positions)
                 draggingPoint.handleIn.x += dx;
@@ -480,15 +489,13 @@
                 let snappedDy = Math.round(dy / gridSize) * gridSize;
                 
                 if (snappedDx !== 0 || snappedDy !== 0) {
-                    // Check for swar box conflicts before moving
+                    // Check if movement is valid for curve points (must stay on swar lines)
                     let canMove = true;
-                    let swarPoints = Array.from(selectedPoints).filter(p => p.isSwar);
-                    
-                    // For swar boxes, check if the new positions would conflict
-                    if (swarPoints.length > 0) {
-                        for (let swarPoint of swarPoints) {
-                            let newY = swarPoint.y + snappedDy;
-                            if (hasSwarAtY(newY, swarPoint)) {
+                    for (let point of selectedPoints) {
+                        if (!point.isSwar) {
+                            let newY = point.y + snappedDy;
+                            let nearestSwarY = findNearestSwarLineY(newY);
+                            if (nearestSwarY === null || Math.abs(newY - nearestSwarY) > gridSize / 2) {
                                 canMove = false;
                                 break;
                             }
@@ -497,10 +504,17 @@
                     
                     if (canMove) {
                         for (let point of selectedPoints) {
-                            point.moveBy(snappedDx, snappedDy);
-                            // Update swar index for swar points
-                            if (point.isSwar) {
-                                point.swarIndex = point.calculateSwarIndex(point.y);
+                            if (!point.isSwar) {
+                                // For curve points, snap to nearest swar line
+                                let newY = point.y + snappedDy;
+                                let nearestSwarY = findNearestSwarLineY(newY);
+                                if (nearestSwarY !== null) {
+                                    let actualDy = nearestSwarY - point.y;
+                                    point.moveBy(snappedDx, actualDy);
+                                }
+                            } else {
+                                // For swar points, move normally
+                                point.moveBy(snappedDx, snappedDy);
                             }
                         }
                         lastMousePos.x += snappedDx;
@@ -781,46 +795,32 @@
             };
         }
         
-        // Check if there's already a swar box at the given Y position
-        function hasSwarAtY(yPos, excludePoint = null) {
+        function hasSwarBoxAtY(yPos) {
             return points.some(point => 
                 point.isSwar && 
-                point !== excludePoint && 
                 Math.abs(point.y - yPos) < gridSize / 2
             );
         }
         
-        // Find the nearest available Y position for a swar box
-        function findAvailableYForSwar(targetY, excludePoint = null) {
-            let snappedY = Math.round(targetY / gridSize) * gridSize;
+        function findNearestSwarLineY(yPos) {
+            let swarYPositions = points.filter(p => p.isSwar).map(p => p.y);
+            if (swarYPositions.length === 0) return null;
             
-            // If the target position is available, use it
-            if (!hasSwarAtY(snappedY, excludePoint)) {
-                return snappedY;
+            // Find the closest swar line
+            let closest = swarYPositions[0];
+            let minDistance = Math.abs(yPos - closest);
+            
+            for (let swarY of swarYPositions) {
+                let distance = Math.abs(yPos - swarY);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closest = swarY;
+                }
             }
             
-            // Search for the nearest available position
-            let searchRadius = 1;
-            while (searchRadius * gridSize < height) {
-                // Try above
-                let yAbove = snappedY - (searchRadius * gridSize);
-                if (yAbove >= 0 && !hasSwarAtY(yAbove, excludePoint)) {
-                    return yAbove;
-                }
-                
-                // Try below
-                let yBelow = snappedY + (searchRadius * gridSize);
-                if (yBelow <= height && !hasSwarAtY(yBelow, excludePoint)) {
-                    return yBelow;
-                }
-                
-                searchRadius++;
-            }
-            
-            // If no position found, return the original (shouldn't happen in normal cases)
-            return snappedY;
+            return closest;
         }
-
+        
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
         }
