@@ -6,6 +6,7 @@
     <title>Indian Vocal Synth - Swar Editor</title>
     <link rel="stylesheet" href="https://webfonts.omenad.net/fonts.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body {
             margin: 0;
@@ -80,7 +81,7 @@
     </style>
 </head>
 <body>
-    <div id="instructions">
+    <div id="instructions" style="display: none;">
         <h3>Indian Vocal Synth - Swar Editor</h3>
         <p><strong>X-axis:</strong> Time | <strong>Y-axis:</strong> Tone (Swar)</p>
         <ul>
@@ -103,13 +104,15 @@
     </div>
     
     <div id="controls">
+        <button onclick="toggleHelp()" style="background: #9C27B0;">Help</button>
         <button onclick="clearAll()">Clear All</button>
         <button class="delete" onclick="deleteSelected()">Delete Selected</button>
         <button onclick="toggleGrid()">Toggle Grid</button>
         <button onclick="toggleHandles()">Toggle Handles</button>
         <button onclick="undo()">Undo</button>
         <button onclick="redo()">Redo</button>
-
+        <button onclick="playSequence()" style="background: #2196F3;">Play</button>
+        <button onclick="loadExample()" style="background: #FF9800;">Load Example</button>
     </div>
     
     <script>
@@ -142,6 +145,21 @@
         
         // Indian swars mapping
         const swarMap = ['sl', 'Rl', 'rl', 'Gl', 'gl', 'ml', 'Ml', 'pl', 'Dl', 'dl', 'Nl', 'nl', 's', 'R', 'r', 'G', 'g', 'm', 'M', 'p', 'D', 'd', 'N', 'n', 'su', 'Ru', 'ru', 'Gu', 'gu', 'mu', 'Mu', 'pu', 'Du', 'du', 'Nu', 'nu'];
+        
+        // Frequency mapping for swars (assuming 's' = C# as specified)
+        // C# is at index 12 in swarMap, so we'll map frequencies around it
+        const swarFrequencies = [
+            // Lower octave (l suffix)
+            138.59, 146.83, 155.56, 164.81, 174.61, 185.00, 196.00, 207.65, 220.00, 233.08, 246.94, 261.63,
+            // Middle octave (no suffix) - 's' = C# = 277.18 Hz
+            277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392.00, 415.30, 440.00, 466.16, 493.88, 523.25,
+            // Upper octave (u suffix)
+            554.37, 587.33, 622.25, 659.25, 698.46, 739.99, 783.99, 830.61, 880.00, 932.33, 987.77, 1046.50
+        ];
+        
+        // Audio synthesis variables
+        let synth = null;
+        let isPlaying = false;
         
         class BezierPoint {
             constructor(x, y, isSwar = false) {
@@ -823,6 +841,166 @@
         
         function windowResized() {
             resizeCanvas(windowWidth, windowHeight);
+        }
+        
+        // Initialize Tone.js synthesizer
+        function initSynth() {
+            if (!synth) {
+                synth = new Tone.Oscillator().toDestination();
+                synth.type = "sine";
+            }
+        }
+        
+        // Play sequence function
+        async function playSequence() {
+            if (isPlaying) return;
+            
+            // Initialize Tone.js context if needed
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+            }
+            
+            initSynth();
+            
+            // Get all points sorted by x position (time)
+            let sortedPoints = [...points].sort((a, b) => a.x - b.x);
+            
+            if (sortedPoints.length < 2) {
+                alert("Please add at least 2 points to play a sequence");
+                return;
+            }
+            
+            isPlaying = true;
+            
+            // Calculate time scale (pixels to seconds)
+            let canvasWidth = width;
+            let totalDuration = 5; // Total sequence duration in seconds
+            let timeScale = totalDuration / canvasWidth;
+            
+            // Start the synthesizer
+            synth.start();
+            
+            // Play each segment
+            for (let i = 0; i < sortedPoints.length - 1; i++) {
+                let currentPoint = sortedPoints[i];
+                let nextPoint = sortedPoints[i + 1];
+                
+                // Calculate timing
+                let startTime = currentPoint.x * timeScale;
+                let endTime = nextPoint.x * timeScale;
+                let duration = endTime - startTime;
+                
+                if (duration <= 0) continue;
+                
+                // Get frequencies for current and next points
+                let currentFreq = getFrequencyForPoint(currentPoint);
+                let nextFreq = getFrequencyForPoint(nextPoint);
+                
+                // Schedule frequency changes
+                if (currentFreq === nextFreq) {
+                    // Constant tone for same swar
+                    synth.frequency.setValueAtTime(currentFreq, Tone.now() + startTime);
+                } else {
+                    // Glide between different swars
+                    synth.frequency.setValueAtTime(currentFreq, Tone.now() + startTime);
+                    synth.frequency.exponentialRampToValueAtTime(nextFreq, Tone.now() + endTime);
+                }
+            }
+            
+            // Stop after total duration
+            setTimeout(() => {
+                synth.stop();
+                isPlaying = false;
+            }, totalDuration * 1000);
+        }
+        
+        // Get frequency for a point based on its Y position and swar
+        function getFrequencyForPoint(point) {
+            if (point.isSwar) {
+                // Use the swar's specific frequency
+                return swarFrequencies[point.swarIndex] || swarFrequencies[12]; // Default to 's'
+            } else {
+                // For curve points, find the nearest swar point and use its frequency
+                let nearestSwar = findNearestSwarPoint(point);
+                if (nearestSwar) {
+                    return swarFrequencies[nearestSwar.swarIndex] || swarFrequencies[12];
+                }
+                return swarFrequencies[12]; // Default to 's'
+            }
+        }
+        
+        // Find the nearest swar point to a curve point
+        function findNearestSwarPoint(curvePoint) {
+            let swarPoints = points.filter(p => p.isSwar);
+            if (swarPoints.length === 0) return null;
+            
+            let nearest = swarPoints[0];
+            let minDistance = Math.abs(curvePoint.y - nearest.y);
+            
+            for (let swarPoint of swarPoints) {
+                let distance = Math.abs(curvePoint.y - swarPoint.y);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = swarPoint;
+                }
+            }
+            
+            return nearest;
+        }
+        
+        // Toggle help panel function
+        function toggleHelp() {
+            const helpPanel = document.getElementById('instructions');
+            if (helpPanel.style.display === 'none') {
+                helpPanel.style.display = 'block';
+            } else {
+                helpPanel.style.display = 'none';
+            }
+        }
+        
+        // Load example function
+        function loadExample() {
+            // Clear existing points
+            points = [];
+            selectedPoints.clear();
+            
+            let canvasWidth = width;
+            let canvasHeight = height;
+            let yCenter = canvasHeight / 2;
+            
+            // Define swar positions vertically aligned on the left side
+            let leftX = canvasWidth * 0.15; // Left alignment position
+            let sY = yCenter; // 's' position
+            let rY = yCenter - gridSize; // 'r' position (higher)
+            let gY = yCenter - gridSize * 2; // 'g' position (highest)
+            
+            // Create 6 swar points: s, r, g, g, r, s
+            let timePositions = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9]; // X positions across time
+            let swarSequence = [12, 14, 16, 16, 14, 12]; // s, r, g, g, r, s (indices in swarMap)
+            let yPositions = [sY, rY, gY, gY, rY, sY]; // Corresponding Y positions
+            
+            // Create the 6 swar points
+            for (let i = 0; i < 6; i++) {
+                let swarPoint = new BezierPoint(canvasWidth * timePositions[i], yPositions[i], true);
+                swarPoint.swarIndex = swarSequence[i];
+                points.push(swarPoint);
+            }
+            
+            // Add curve points between each swar for smooth transitions
+            for (let i = 0; i < 5; i++) {
+                let currentPoint = points[i];
+                let nextPoint = points[i + 1];
+                
+                // Calculate curve point position (midway between swars)
+                let curveX = (currentPoint.x + nextPoint.x) / 2;
+                let curveY = (currentPoint.y + nextPoint.y) / 2;
+                
+                let curvePoint = new BezierPoint(curveX, curveY, false);
+                points.push(curvePoint);
+            }
+            
+            // Save state for undo functionality
+            saveState();
         }
     </script>
 </body>
