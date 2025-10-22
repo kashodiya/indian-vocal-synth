@@ -853,65 +853,76 @@
         
         // Play sequence function
         async function playSequence() {
-            if (isPlaying) return;
-            
-            // Initialize Tone.js context if needed
-            if (Tone.context.state !== 'running') {
-                await Tone.start();
-            }
-            
-            initSynth();
-            
-            // Get all points sorted by x position (time)
-            let sortedPoints = [...points].sort((a, b) => a.x - b.x);
-            
-            if (sortedPoints.length < 2) {
-                alert("Please add at least 2 points to play a sequence");
-                return;
-            }
-            
-            isPlaying = true;
-            
-            // Calculate time scale (pixels to seconds)
-            let canvasWidth = width;
-            let totalDuration = 5; // Total sequence duration in seconds
-            let timeScale = totalDuration / canvasWidth;
-            
-            // Start the synthesizer
-            synth.start();
-            
-            // Play each segment
-            for (let i = 0; i < sortedPoints.length - 1; i++) {
-                let currentPoint = sortedPoints[i];
-                let nextPoint = sortedPoints[i + 1];
+            try {
+                if (isPlaying) return;
                 
-                // Calculate timing
-                let startTime = currentPoint.x * timeScale;
-                let endTime = nextPoint.x * timeScale;
-                let duration = endTime - startTime;
+                // Initialize Tone.js context if needed
+                if (Tone.context.state !== 'running') {
+                    await Tone.start();
+                }
                 
-                if (duration <= 0) continue;
+                initSynth();
                 
-                // Get frequencies for current and next points
-                let currentFreq = getFrequencyForPoint(currentPoint);
-                let nextFreq = getFrequencyForPoint(nextPoint);
+                // Get all points sorted by x position (time)
+                let sortedPoints = [...points].sort((a, b) => a.x - b.x);
                 
-                // Schedule frequency changes
-                if (currentFreq === nextFreq) {
-                    // Constant tone for same swar
-                    synth.frequency.setValueAtTime(currentFreq, Tone.now() + startTime);
-                } else {
-                    // Glide between different swars
-                    synth.frequency.setValueAtTime(currentFreq, Tone.now() + startTime);
-                    synth.frequency.exponentialRampToValueAtTime(nextFreq, Tone.now() + endTime);
+                if (sortedPoints.length < 2) {
+                    alert("Please add at least 2 points to play a sequence");
+                    return;
+                }
+                
+                isPlaying = true;
+                
+                // Calculate time scale (pixels to seconds)
+                let canvasWidth = windowWidth || 800; // Use windowWidth instead of width, with fallback
+                let totalDuration = 5; // Total sequence duration in seconds
+                let timeScale = totalDuration / canvasWidth;
+                
+                // Start the synthesizer
+                synth.start();
+                
+                // Play each segment
+                for (let i = 0; i < sortedPoints.length - 1; i++) {
+                    let currentPoint = sortedPoints[i];
+                    let nextPoint = sortedPoints[i + 1];
+                    
+                    // Calculate timing
+                    let startTime = currentPoint.x * timeScale;
+                    let endTime = nextPoint.x * timeScale;
+                    let duration = endTime - startTime;
+                    
+                    if (duration <= 0) continue;
+                    
+                    // Get frequencies for current and next points
+                    let currentFreq = getFrequencyForPoint(currentPoint);
+                    let nextFreq = getFrequencyForPoint(nextPoint);
+                    
+                    // Schedule frequency changes
+                    if (currentFreq === nextFreq) {
+                        // Constant tone for same swar
+                        synth.frequency.setValueAtTime(currentFreq, Tone.now() + startTime);
+                    } else {
+                        // Glide between different swars
+                        synth.frequency.setValueAtTime(currentFreq, Tone.now() + startTime);
+                        synth.frequency.exponentialRampToValueAtTime(nextFreq, Tone.now() + endTime);
+                    }
+                }
+                
+                // Stop after total duration
+                setTimeout(() => {
+                    if (synth) {
+                        synth.stop();
+                    }
+                    isPlaying = false;
+                }, totalDuration * 1000);
+                
+            } catch (error) {
+                console.error("Error in playSequence:", error);
+                isPlaying = false;
+                if (synth) {
+                    synth.stop();
                 }
             }
-            
-            // Stop after total duration
-            setTimeout(() => {
-                synth.stop();
-                isPlaying = false;
-            }, totalDuration * 1000);
         }
         
         // Get frequency for a point based on its Y position and swar
@@ -964,38 +975,34 @@
             points = [];
             selectedPoints.clear();
             
-            let canvasWidth = width;
+            let canvasWidth = windowWidth || 800;
             let canvasHeight = height;
             let yCenter = canvasHeight / 2;
             
             // Define swar positions vertically aligned on the left side
             let leftX = canvasWidth * 0.15; // Left alignment position
-            let sY = yCenter; // 's' position
+            let sY = yCenter; // 's' position (middle)
             let rY = yCenter - gridSize; // 'r' position (higher)
             let gY = yCenter - gridSize * 2; // 'g' position (highest)
             
-            // Create 6 swar points: s, r, g, g, r, s
-            let timePositions = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9]; // X positions across time
-            let swarSequence = [12, 14, 16, 16, 14, 12]; // s, r, g, g, r, s (indices in swarMap)
-            let yPositions = [sY, rY, gY, gY, rY, sY]; // Corresponding Y positions
+            // Create only 3 swar points vertically aligned on the left
+            let swarSequence = [12, 14, 16]; // s, r, g (indices in swarMap)
+            let yPositions = [sY, rY, gY]; // Corresponding Y positions
             
-            // Create the 6 swar points
-            for (let i = 0; i < 6; i++) {
-                let swarPoint = new BezierPoint(canvasWidth * timePositions[i], yPositions[i], true);
+            // Create the 3 swar points vertically aligned
+            for (let i = 0; i < 3; i++) {
+                let swarPoint = new BezierPoint(leftX, yPositions[i], true);
                 swarPoint.swarIndex = swarSequence[i];
                 points.push(swarPoint);
             }
             
-            // Add curve points between each swar for smooth transitions
-            for (let i = 0; i < 5; i++) {
-                let currentPoint = points[i];
-                let nextPoint = points[i + 1];
-                
-                // Calculate curve point position (midway between swars)
-                let curveX = (currentPoint.x + nextPoint.x) / 2;
-                let curveY = (currentPoint.y + nextPoint.y) / 2;
-                
-                let curvePoint = new BezierPoint(curveX, curveY, false);
+            // Add round curve points at s, s, r, r, g, g positions
+            let curveTimePositions = [0.3, 0.45, 0.6, 0.75, 0.85, 0.95]; // X positions across time
+            let curveYPositions = [sY, sY, rY, rY, gY, gY]; // s, s, r, r, g, g Y positions
+            
+            // Create the 6 round curve points
+            for (let i = 0; i < 6; i++) {
+                let curvePoint = new BezierPoint(canvasWidth * curveTimePositions[i], curveYPositions[i], false);
                 points.push(curvePoint);
             }
             
