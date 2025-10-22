@@ -7,3 +7,5 @@ Run the project it using live-server. You can install that using - npm install -
 X axis represent time. Y axis represent tone (Swar).
 
 The solution must be implemented in single index.html file. 
+
+A point indicate the frequency. Distance between the point indicates time duration. Shape of the curve between the point indicate the glide from one frequency to another. Time moves from left to right direction.
