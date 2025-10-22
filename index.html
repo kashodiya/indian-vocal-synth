@@ -619,15 +619,11 @@
                 let dragDistance = dist(mx, my, draggingPoint.x + dragOffset.x, draggingPoint.y + dragOffset.y);
                 
                 // If the drag distance is very small, treat it as a click and enter swar change mode
-                // but only if double-clicked (within 300ms of last click)
+                // Single click is enough to enter swar change mode
                 if (dragDistance < 5) {
-                    // Double-click detection for swar change mode
-                    let currentTime = millis();
-                    if (draggingPoint.lastClickTime && (currentTime - draggingPoint.lastClickTime < 300)) {
-                        swarChangeMode = true;
-                        activeSwarPoint = draggingPoint;
-                    }
-                    draggingPoint.lastClickTime = currentTime;
+                    swarChangeMode = true;
+                    activeSwarPoint = draggingPoint;
+                    draggingPoint.lastClickTime = millis();
                 }
             }
             
@@ -653,12 +649,20 @@
                     if (activeSwarPoint.swarIndex < swarMap.length - 1) {
                         activeSwarPoint.swarIndex++;
                         saveState();
+                    } else {
+                        // Wrap around to the beginning if at the end
+                        activeSwarPoint.swarIndex = 0;
+                        saveState();
                     }
                     return false; // Prevent default behavior
                 } else if (keyCode === DOWN_ARROW || keyCode === LEFT_ARROW) {
                     // Go to lower swar
                     if (activeSwarPoint.swarIndex > 0) {
                         activeSwarPoint.swarIndex--;
+                        saveState();
+                    } else {
+                        // Wrap around to the end if at the beginning
+                        activeSwarPoint.swarIndex = swarMap.length - 1;
                         saveState();
                     }
                     return false; // Prevent default behavior
