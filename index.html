@@ -873,23 +873,52 @@
                 
                 isPlaying = true;
                 
-                // Calculate time scale (pixels to seconds)
-                let canvasWidth = windowWidth || 800; // Use windowWidth instead of width, with fallback
-                let totalDuration = 5; // Total sequence duration in seconds
-                let timeScale = totalDuration / canvasWidth;
+                // Calculate time scale based on grid units instead of pixels
+                // Each grid unit represents 1 time unit
+                let timeUnitPerGrid = 0.25; // 0.25 seconds per grid unit
                 
                 // Start the synthesizer
                 synth.start();
+                
+                // Calculate total duration in grid units for the entire sequence
+                let totalGridUnits = (sortedPoints[sortedPoints.length - 1].x - sortedPoints[0].x) / gridSize;
+                let totalDuration = totalGridUnits * timeUnitPerGrid;
+                
+                // Display debug information on screen
+                let debugInfo = document.createElement('div');
+                debugInfo.style.position = 'absolute';
+                debugInfo.style.bottom = '10px';
+                debugInfo.style.left = '10px';
+                debugInfo.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                debugInfo.style.color = 'white';
+                debugInfo.style.padding = '10px';
+                debugInfo.style.borderRadius = '5px';
+                debugInfo.style.fontFamily = 'monospace';
+                debugInfo.style.zIndex = '1000';
+                debugInfo.id = 'debug-info';
+                debugInfo.innerHTML = `Total grid units: ${totalGridUnits}<br>Total duration: ${totalDuration.toFixed(2)}s`;
+                document.body.appendChild(debugInfo);
+                
+                // Remove debug info after 5 seconds
+                setTimeout(() => {
+                    const debugElement = document.getElementById('debug-info');
+                    if (debugElement) debugElement.remove();
+                }, 5000);
                 
                 // Play each segment
                 for (let i = 0; i < sortedPoints.length - 1; i++) {
                     let currentPoint = sortedPoints[i];
                     let nextPoint = sortedPoints[i + 1];
                     
-                    // Calculate timing
-                    let startTime = currentPoint.x * timeScale;
-                    let endTime = nextPoint.x * timeScale;
-                    let duration = endTime - startTime;
+                    // Calculate timing based on grid units
+                    let gridUnitsBetween = (nextPoint.x - currentPoint.x) / gridSize;
+                    let startTime = (currentPoint.x - sortedPoints[0].x) / gridSize * timeUnitPerGrid;
+                    let endTime = startTime + (gridUnitsBetween * timeUnitPerGrid);
+                    let duration = gridUnitsBetween * timeUnitPerGrid;
+                    
+                    // Log the grid units and duration for debugging
+                    console.log(`Points: (${currentPoint.x}, ${currentPoint.y}) to (${nextPoint.x}, ${nextPoint.y})`);
+                    console.log(`Grid units between: ${gridUnitsBetween}, Duration: ${duration}s`);
                     
                     if (duration <= 0) continue;
                     
@@ -914,7 +943,7 @@
                         synth.stop();
                     }
                     isPlaying = false;
-                }, totalDuration * 1000);
+                }, totalDuration * 1000); // Using our grid-based totalDuration
                 
             } catch (error) {
                 console.error("Error in playSequence:", error);
