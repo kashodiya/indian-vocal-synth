@@ -185,7 +185,7 @@
                 return 'स';
             }
             
-            draw() {
+            draw(isPlaying = false) {
                 // Draw handles only if showHandles is true and not a Swar point
                 if (showHandles && !this.isSwar) {
                     // Draw handles
@@ -202,14 +202,25 @@
                 }
                 
                 // Draw main point
-                noStroke();
                 if (this.isSwar) {
                     // Draw rounded square for Swar points (double size)
                     let swarSize = gridSize * 1.6; // 160% of grid size (double the previous 80%)
-                    if (this.selected) {
+                    
+                    // Determine fill color based on selection and playing state
+                    if (isPlaying) {
+                        // Bright blue glow for playing Swar
+                        noStroke();
+                        fill(0, 200, 255, 100); // Semi-transparent blue glow
+                        ellipse(this.x, this.y, swarSize * 1.5, swarSize * 1.5);
+                        
+                        fill(0, 200, 255); // Bright blue for playing Swar
+                        rect(this.x - swarSize/2, this.y - swarSize/2, swarSize, swarSize, 8);
+                    } else if (this.selected) {
+                        noStroke();
                         fill(255, 150, 50); // Orange for selected Swar
                         rect(this.x - swarSize/2, this.y - swarSize/2, swarSize, swarSize, 8);
                     } else {
+                        noStroke();
                         fill(200, 100, 50); // Brown for Swar points
                         let smallerSize = swarSize * 0.75;
                         rect(this.x - smallerSize/2, this.y - smallerSize/2, smallerSize, smallerSize, 6);
@@ -231,7 +242,15 @@
                     }
                 } else {
                     // Draw circle for curve points
-                    if (this.selected) {
+                    noStroke();
+                    if (isPlaying) {
+                        // Bright blue glow for playing point
+                        fill(0, 200, 255, 100); // Semi-transparent blue glow
+                        ellipse(this.x, this.y, 24, 24);
+                        
+                        fill(0, 200, 255); // Bright blue for playing point
+                        ellipse(this.x, this.y, 16, 16);
+                    } else if (this.selected) {
                         fill(255, 100, 100); // Red for selected curve points
                         ellipse(this.x, this.y, 16, 16);
                     } else {
@@ -290,12 +309,27 @@
             let curvePoints = points.filter(p => !p.isSwar);
             if (curvePoints.length >= 2) {
                 noFill();
-                stroke(50, 50, 50);
-                strokeWeight(2);
                 
                 for (let i = 0; i < curvePoints.length - 1; i++) {
                     let p1 = curvePoints[i];
                     let p2 = curvePoints[i + 1];
+                    
+                    // Check if this segment is currently playing
+                    let isPlayingSegment = isPlaying && 
+                                          currentPlayingSegment && 
+                                          currentPlayingSegment.start === p1 && 
+                                          currentPlayingSegment.end === p2;
+                    
+                    if (isPlayingSegment) {
+                        // Highlight the currently playing segment
+                        stroke(0, 200, 255); // Bright blue for playing segment
+                        strokeWeight(4);
+                    } else {
+                        // Regular styling for other segments
+                        stroke(50, 50, 50);
+                        strokeWeight(2);
+                    }
+                    
                     bezier(
                         p1.x, p1.y,
                         p1.handleOut.x, p1.handleOut.y,
@@ -307,7 +341,9 @@
             
             // Draw all points and their handles
             for (let point of points) {
-                point.draw();
+                // Check if this point is currently playing
+                let isPlayingPoint = isPlaying && currentPlayingPoint === point;
+                point.draw(isPlayingPoint);
             }
         }
         
@@ -336,18 +372,38 @@
             for (let point of points) {
                 if (point.isNearPoint(mx, my)) {
                     if (point.isSwar) {
-                        // For Swar points, set up dragging first, swar change mode will be handled in mouseReleased if no drag occurred
-                        draggingPoint = point;
-                        dragOffset = { x: mx - point.x, y: my - point.y };
-                        // Clear any existing selections
-                        selectedPoints.clear();
-                        for (let p of points) {
-                            p.selected = false;
+                        if (keyIsDown(CONTROL)) {
+                            // Toggle selection with Ctrl+Click for Swar points
+                            point.selected = !point.selected;
+                            if (point.selected) {
+                                selectedPoints.add(point);
+                            } else {
+                                selectedPoints.delete(point);
+                            }
+                            // Exit swar change mode
+                            swarChangeMode = false;
+                            activeSwarPoint = null;
+                            return;
+                        } else {
+                            // For Swar points, set up dragging first, swar change mode will be handled in mouseReleased if no drag occurred
+                            draggingPoint = point;
+                            dragOffset = { x: mx - point.x, y: my - point.y };
+                            
+                            // Clear any existing selections first
+                            selectedPoints.clear();
+                            for (let p of points) {
+                                p.selected = false;
+                            }
+                            
+                            // Select this Swar point
+                            point.selected = true;
+                            selectedPoints.add(point);
+                            
+                            // Exit swar change mode
+                            swarChangeMode = false;
+                            activeSwarPoint = null;
+                            return;
                         }
-                        // Exit swar change mode
-                        swarChangeMode = false;
-                        activeSwarPoint = null;
-                        return;
                     } else if (keyIsDown(CONTROL)) {
                         // Toggle selection with Ctrl+Click for curve points
                         point.selected = !point.selected;
@@ -560,9 +616,15 @@
                 let dragDistance = dist(mx, my, draggingPoint.x + dragOffset.x, draggingPoint.y + dragOffset.y);
                 
                 // If the drag distance is very small, treat it as a click and enter swar change mode
+                // but only if double-clicked (within 300ms of last click)
                 if (dragDistance < 5) {
-                    swarChangeMode = true;
-                    activeSwarPoint = draggingPoint;
+                    // Double-click detection for swar change mode
+                    let currentTime = millis();
+                    if (draggingPoint.lastClickTime && (currentTime - draggingPoint.lastClickTime < 300)) {
+                        swarChangeMode = true;
+                        activeSwarPoint = draggingPoint;
+                    }
+                    draggingPoint.lastClickTime = currentTime;
                 }
             }
             
@@ -889,6 +951,10 @@
         }
         
         // Play sequence function
+        // Variables for playback visualization
+        let currentPlayingPoint = null;
+        let currentPlayingSegment = null;
+        
         async function playSequence() {
             try {
                 if (isPlaying) return;
@@ -903,8 +969,8 @@
                 // Get all points sorted by x position (time)
                 let sortedPoints = [...points].sort((a, b) => a.x - b.x);
                 
-                if (sortedPoints.length < 2) {
-                    alert("Please add at least 2 points to play a sequence");
+                if (sortedPoints.length === 0) {
+                    alert("Please add at least 1 point to play a sequence");
                     return;
                 }
                 
@@ -918,7 +984,15 @@
                 synth.start();
                 
                 // Calculate total duration in grid units for the entire sequence
-                let totalGridUnits = (sortedPoints[sortedPoints.length - 1].x - sortedPoints[0].x) / gridSize;
+                let totalGridUnits = 0;
+                
+                if (sortedPoints.length === 1) {
+                    // If there's only one point, play it for 1 grid unit
+                    totalGridUnits = 1;
+                } else {
+                    totalGridUnits = (sortedPoints[sortedPoints.length - 1].x - sortedPoints[0].x) / gridSize;
+                }
+                
                 let totalDuration = totalGridUnits * timeUnitPerGrid;
                 
                 // Display debug information on screen
@@ -942,6 +1016,49 @@
                     if (debugElement) debugElement.remove();
                 }, 5000);
                 
+                // Create a progress indicator
+                let progressIndicator = document.createElement('div');
+                progressIndicator.style.position = 'absolute';
+                progressIndicator.style.top = '10px';
+                progressIndicator.style.left = '50%';
+                progressIndicator.style.transform = 'translateX(-50%)';
+                progressIndicator.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                progressIndicator.style.color = 'white';
+                progressIndicator.style.padding = '5px 10px';
+                progressIndicator.style.borderRadius = '5px';
+                progressIndicator.style.fontFamily = 'monospace';
+                progressIndicator.style.zIndex = '1000';
+                progressIndicator.id = 'progress-indicator';
+                progressIndicator.innerHTML = 'Playing...';
+                document.body.appendChild(progressIndicator);
+                
+                // Handle single point case
+                if (sortedPoints.length === 1) {
+                    let point = sortedPoints[0];
+                    let freq = getFrequencyForPoint(point);
+                    
+                    // Highlight the current playing point
+                    currentPlayingPoint = point;
+                    
+                    // Play a single tone for 1 grid unit
+                    synth.frequency.setValueAtTime(freq, Tone.now());
+                    
+                    // Stop after 1 grid unit
+                    setTimeout(() => {
+                        if (synth) {
+                            synth.stop();
+                        }
+                        isPlaying = false;
+                        currentPlayingPoint = null;
+                        
+                        // Remove progress indicator
+                        const progressElement = document.getElementById('progress-indicator');
+                        if (progressElement) progressElement.remove();
+                    }, timeUnitPerGrid * 1000);
+                    
+                    return;
+                }
+                
                 // Play each segment
                 for (let i = 0; i < sortedPoints.length - 1; i++) {
                     let currentPoint = sortedPoints[i];
@@ -959,9 +1076,35 @@
                     
                     if (duration <= 0) continue;
                     
+                    // Check if there's a connection between these points (both are curve points)
+                    let isConnected = !currentPoint.isSwar && !nextPoint.isSwar;
+                    
+                    // Schedule highlighting of current segment
+                    setTimeout(() => {
+                        currentPlayingPoint = currentPoint;
+                        currentPlayingSegment = isConnected ? { start: currentPoint, end: nextPoint } : null;
+                        
+                        // Update progress indicator
+                        const progressElement = document.getElementById('progress-indicator');
+                        if (progressElement) {
+                            progressElement.innerHTML = `Playing segment ${i+1}/${sortedPoints.length-1}`;
+                        }
+                    }, startTime * 1000);
+                    
+                    // If there's no connection, play silence
+                    if (!isConnected) {
+                        // Just silence, no tone changes
+                        synth.volume.setValueAtTime(-Infinity, Tone.now() + startTime);
+                        synth.volume.setValueAtTime(0, Tone.now() + endTime);
+                        continue;
+                    }
+                    
                     // Get frequencies for current and next points
                     let currentFreq = getFrequencyForPoint(currentPoint);
                     let nextFreq = getFrequencyForPoint(nextPoint);
+                    
+                    // Ensure volume is normal
+                    synth.volume.setValueAtTime(0, Tone.now() + startTime);
                     
                     // Schedule frequency changes
                     if (currentFreq === nextFreq) {
@@ -980,14 +1123,26 @@
                         synth.stop();
                     }
                     isPlaying = false;
+                    currentPlayingPoint = null;
+                    currentPlayingSegment = null;
+                    
+                    // Remove progress indicator
+                    const progressElement = document.getElementById('progress-indicator');
+                    if (progressElement) progressElement.remove();
                 }, totalDuration * 1000); // Using our grid-based totalDuration
                 
             } catch (error) {
                 console.error("Error in playSequence:", error);
                 isPlaying = false;
+                currentPlayingPoint = null;
+                currentPlayingSegment = null;
                 if (synth) {
                     synth.stop();
                 }
+                
+                // Remove progress indicator
+                const progressElement = document.getElementById('progress-indicator');
+                if (progressElement) progressElement.remove();
             }
         }
         
