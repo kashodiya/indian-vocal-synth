@@ -91,10 +91,11 @@
             <li><strong>Drag handles</strong> to adjust curves</li>
             <li><strong>Click on curve</strong> to add a point on it</li>
             <li><strong>Ctrl+Click</strong> on curve point to select/deselect</li>
+            <li><strong>Click on curve</strong> to select curve for deletion</li>
             <li><strong>Click on Swar point</strong> to enter swar change mode</li>
             <li><strong>Arrow keys</strong> in swar mode: Up/Right = higher swar, Down/Left = lower swar</li>
             <li><strong>Escape/Enter</strong> to exit swar change mode</li>
-            <li><strong>Delete key</strong> to delete selected points</li>
+            <li><strong>Delete key</strong> to delete selected points or curves</li>
             <li><strong>Drag selected</strong> to move multiple points</li>
             <li><strong>Toggle Grid</strong> button to show/hide grid</li>
             <li><strong>Toggle Handles</strong> button to show/hide control handles</li>
@@ -118,6 +119,8 @@
     <script>
         let points = [];
         let selectedPoints = new Set();
+        let selectedCurves = new Set();
+        let deletedCurves = new Set();
         let draggingPoint = null;
         let draggingHandle = null;
         let draggingSelected = false;
@@ -313,6 +316,10 @@
                 for (let i = 0; i < curvePoints.length - 1; i++) {
                     let p1 = curvePoints[i];
                     let p2 = curvePoints[i + 1];
+                    let curveId = `${p1.x},${p1.y}-${p2.x},${p2.y}`;
+                    
+                    // Skip deleted curves
+                    if (deletedCurves.has(curveId)) continue;
                     
                     // Check if this segment is currently playing
                     let isPlayingSegment = isPlaying && 
@@ -320,10 +327,17 @@
                                           currentPlayingSegment.start === p1 && 
                                           currentPlayingSegment.end === p2;
                     
+                    // Check if this curve is selected
+                    let isSelected = selectedCurves.has(curveId);
+                    
                     if (isPlayingSegment) {
                         // Highlight the currently playing segment
                         stroke(0, 200, 255); // Bright blue for playing segment
                         strokeWeight(4);
+                    } else if (isSelected) {
+                        // Highlight selected curves
+                        stroke(255, 100, 100); // Red for selected curves
+                        strokeWeight(3);
                     } else {
                         // Regular styling for other segments
                         stroke(50, 50, 50);
@@ -447,18 +461,38 @@
                 }
             }
             
-            // Check if clicking on a curve to add a point (only for curve points)
+            // Check if clicking on a curve
             let curvePoints = points.filter(p => !p.isSwar);
             if (curvePoints.length >= 2) {
                 for (let i = 0; i < curvePoints.length - 1; i++) {
                     if (isNearCurve(mx, my, curvePoints[i], curvePoints[i + 1])) {
-                        // Add a new curve point on the curve
-                        let t = findClosestT(mx, my, curvePoints[i], curvePoints[i + 1]);
-                        let newPoint = createPointOnCurve(curvePoints[i], curvePoints[i + 1], t);
-                        // Find the correct position in the original points array
-                        let insertIndex = points.indexOf(curvePoints[i + 1]);
-                        points.splice(insertIndex, 0, newPoint);
-                        saveState();
+                        if (shiftPressed || keyIsDown(SHIFT)) {
+                            // Shift+Click: Add a new curve point on the curve
+                            let t = findClosestT(mx, my, curvePoints[i], curvePoints[i + 1]);
+                            let newPoint = createPointOnCurve(curvePoints[i], curvePoints[i + 1], t);
+                            // Find the correct position in the original points array
+                            let insertIndex = points.indexOf(curvePoints[i + 1]);
+                            points.splice(insertIndex, 0, newPoint);
+                            saveState();
+                        } else {
+                            // Regular click: Select the curve
+                            let p1 = curvePoints[i];
+                            let p2 = curvePoints[i + 1];
+                            let curveId = `${p1.x},${p1.y}-${p2.x},${p2.y}`;
+                            
+                            if (keyIsDown(CONTROL)) {
+                                // Toggle curve selection with Ctrl+Click
+                                if (selectedCurves.has(curveId)) {
+                                    selectedCurves.delete(curveId);
+                                } else {
+                                    selectedCurves.add(curveId);
+                                }
+                            } else {
+                                // Clear other selections and select this curve
+                                selectedCurves.clear();
+                                selectedCurves.add(curveId);
+                            }
+                        }
                         return;
                     }
                 }
@@ -468,9 +502,10 @@
             swarChangeMode = false;
             activeSwarPoint = null;
             
-            // Check if there are selected points - if so, deselect them instead of creating new point
-            if (selectedPoints.size > 0) {
+            // Check if there are selected points or curves - if so, deselect them instead of creating new point
+            if (selectedPoints.size > 0 || selectedCurves.size > 0) {
                 selectedPoints.clear();
+                selectedCurves.clear();
                 for (let p of points) {
                     p.selected = false;
                 }
@@ -682,6 +717,12 @@
             }
             
             if (key === 'Delete' || keyCode === DELETE || key === 'd' || key === 'D') {
+                // Delete selected curves first
+                if (selectedCurves.size > 0) {
+                    deleteCurves();
+                    return;
+                }
+                
                 // If a swar point is selected or in swar change mode, delete it and all points on its line
                 if ((swarChangeMode && activeSwarPoint) || 
                     (selectedPoints.size === 1 && [...selectedPoints][0].isSwar)) {
@@ -806,6 +847,20 @@
         function clearAll() {
             points = [];
             selectedPoints.clear();
+            selectedCurves.clear();
+            deletedCurves.clear();
+            saveState();
+        }
+        
+        function deleteCurves() {
+            if (selectedCurves.size === 0) return;
+            
+            // Add selected curves to deleted set
+            for (let curveId of selectedCurves) {
+                deletedCurves.add(curveId);
+            }
+            
+            selectedCurves.clear();
             saveState();
         }
         
@@ -862,6 +917,7 @@
         function restoreState(state) {
             // Clear current selection
             selectedPoints.clear();
+            selectedCurves.clear();
             
             // Restore points
             points = state.points.map(p => {
